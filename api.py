@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from music_generator.agent import root_agent
 
 APP_NAME = "music_generator_api"
 GENERATED_DIR = Path(__file__).parent / "music_generator" / "generated_music"
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET", "")
+PUBLIC_BASE = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}" if GCS_BUCKET_NAME else ""
 
 app = FastAPI(title="Music Generator API")
 
@@ -52,6 +55,19 @@ class GenerateResponse(BaseModel):
     track_url: str | None
     track_name: str | None
     lyrics: str | None
+
+
+def _bucket():
+    if not GCS_BUCKET_NAME:
+        return None
+    from google.cloud import storage
+
+    return storage.Client().bucket(GCS_BUCKET_NAME)
+
+
+def _display_name(filename: str) -> str:
+    stem = filename.rsplit(".", 1)[0]
+    return stem.replace("lyria_", "").replace("lyria3_", "").replace("_", " ").strip()
 
 
 def _latest_track() -> Path | None:
@@ -91,12 +107,26 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     lyrics = (state.state.get("last_generated_lyrics") or "") if state else ""
 
     track = _latest_track()
+    track_url = None
+    if track:
+        bucket = None
+        try:
+            bucket = _bucket()
+        except Exception:
+            bucket = None
+        if bucket is not None:
+            blob = bucket.blob(track.name)
+            content_type = "audio/mpeg" if track.suffix.lower() == ".mp3" else "audio/wav"
+            blob.upload_from_filename(str(track), content_type=content_type)
+            track_url = f"{PUBLIC_BASE}/{track.name}"
+        else:
+            track_url = f"/api/audio/{track.name}"
     return GenerateResponse(
         session_id=session_id,
         message=final_message.strip(),
         emotion_analysis=emotion,
         enhanced_prompt=prompt,
-        track_url=f"/api/audio/{track.name}" if track else None,
+        track_url=track_url,
         track_name=track.name if track else None,
         lyrics=lyrics or None,
     )
@@ -104,6 +134,27 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
 @app.get("/api/tracks")
 async def tracks() -> list[dict]:
+    try:
+        bucket = _bucket()
+    except Exception:
+        bucket = None
+    if bucket is not None:
+        items = []
+        for blob in bucket.list_blobs():
+            if not blob.name.lower().endswith((".wav", ".mp3")):
+                continue
+            items.append(
+                {
+                    "name": _display_name(blob.name),
+                    "file": blob.name,
+                    "url": f"{PUBLIC_BASE}/{blob.name}",
+                    "size_mb": round((blob.size or 0) / (1024 * 1024), 2),
+                    "created": blob.time_created.timestamp() if blob.time_created else 0.0,
+                }
+            )
+        items.sort(key=lambda i: i["created"], reverse=True)
+        return items
+
     if not GENERATED_DIR.exists():
         return []
     items = []
@@ -112,7 +163,7 @@ async def tracks() -> list[dict]:
         stat = f.stat()
         items.append(
             {
-                "name": f.stem.replace("lyria_", "").replace("lyria3_", "").replace("_", " ").strip(),
+                "name": _display_name(f.name),
                 "file": f.name,
                 "url": f"/api/audio/{f.name}",
                 "size_mb": round(stat.st_size / (1024 * 1024), 2),

@@ -1,0 +1,10 @@
+.env
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+music_generator/.adk/
+music_generator/generated_music/*.wav.keep
+Dockerfile
+.dockerignore
