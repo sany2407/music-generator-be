@@ -1,0 +1,11 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# local agent state & generated output
+music_generator/.adk/
+music_generator/generated_music/
