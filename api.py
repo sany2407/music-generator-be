@@ -55,6 +55,7 @@ class GenerateResponse(BaseModel):
     track_url: str | None
     track_name: str | None
     lyrics: str | None
+    cover_url: str | None = None
 
 
 def _bucket():
@@ -105,6 +106,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     emotion = (state.state.get("emotion_analysis") or "") if state else ""
     prompt = (state.state.get("enhanced_prompt") or "") if state else ""
     lyrics = (state.state.get("last_generated_lyrics") or "") if state else ""
+    cover_url = (state.state.get("last_generated_cover_url") or None) if state else None
 
     track = _latest_track()
     track_url = None
@@ -129,6 +131,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         track_url=track_url,
         track_name=track.name if track else None,
         lyrics=lyrics or None,
+        cover_url=cover_url,
     )
 
 
@@ -140,19 +143,25 @@ async def tracks() -> list[dict]:
         bucket = None
     if bucket is not None:
         items = []
+        covers: dict[str, str] = {}
         for blob in bucket.list_blobs():
-            if not blob.name.lower().endswith((".wav", ".mp3")):
-                continue
-            items.append(
-                {
-                    "name": _display_name(blob.name),
-                    "file": blob.name,
-                    "url": f"{PUBLIC_BASE}/{blob.name}",
-                    "size_mb": round((blob.size or 0) / (1024 * 1024), 2),
-                    "created": blob.time_created.timestamp() if blob.time_created else 0.0,
-                }
-            )
+            name = blob.name.lower()
+            if name.endswith("_cover.png"):
+                covers[blob.name[: -len("_cover.png")]] = f"{PUBLIC_BASE}/{blob.name}"
+            elif name.endswith((".wav", ".mp3")):
+                items.append(
+                    {
+                        "name": _display_name(blob.name),
+                        "file": blob.name,
+                        "url": f"{PUBLIC_BASE}/{blob.name}",
+                        "size_mb": round((blob.size or 0) / (1024 * 1024), 2),
+                        "created": blob.time_created.timestamp() if blob.time_created else 0.0,
+                        "cover_url": None,
+                    }
+                )
         items.sort(key=lambda i: i["created"], reverse=True)
+        for item in items:
+            item["cover_url"] = covers.get(item["file"].rsplit(".", 1)[0])
         return items
 
     if not GENERATED_DIR.exists():
