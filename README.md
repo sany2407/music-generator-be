@@ -51,8 +51,9 @@ python main.py
 # ADK Dev UI (optional)
 adk web
 ```
+4. Architecture
+   ![sany2407/music-generator-be — Main System Architecture](https://datadef.io/api/embed/sany2407music-generator-be-main-fc7a24cd)
 
-## Notes on Lyria
 
 - Uses the `lyria-002` model on Vertex AI (`predict` endpoint).
 - Returns ~30 second instrumental audio as base64, saved as `.wav`.
